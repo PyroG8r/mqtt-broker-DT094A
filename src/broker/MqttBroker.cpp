@@ -6,9 +6,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <fcntl.h>
 #include <sys/select.h>
 #include <algorithm>
+
+namespace mqtt {
 
 MqttBroker::MqttBroker() : serverSocket(-1), running(false) {}
 
@@ -19,18 +20,10 @@ MqttBroker::~MqttBroker() {
 void MqttBroker::start() {
     // Create TCP socket
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (serverSocket < 0) {
-        std::cerr << "Failed to create socket" << std::endl;
-        return;
-    }
     
     // Set socket options to reuse address
     int opt = 1;
-    if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        std::cerr << "Failed to set socket options" << std::endl;
-        close(serverSocket);
-        return;
-    }
+    setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     
     // Bind socket to port 1883
     struct sockaddr_in serverAddr;
@@ -39,18 +32,10 @@ void MqttBroker::start() {
     serverAddr.sin_addr.s_addr = INADDR_ANY;
     serverAddr.sin_port = htons(DEFAULT_PORT);
     
-    if (bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
-        std::cerr << "Failed to bind to port " << DEFAULT_PORT << std::endl;
-        close(serverSocket);
-        return;
-    }
+    bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
     
     // Start listening
-    if (listen(serverSocket, MAX_CONNECTIONS) < 0) {
-        std::cerr << "Failed to listen on socket" << std::endl;
-        close(serverSocket);
-        return;
-    }
+    listen(serverSocket, MAX_CONNECTIONS);
     
     running = true;
     std::cout << "MQTT Broker started on port " << DEFAULT_PORT << std::endl;
@@ -167,3 +152,5 @@ void MqttBroker::handleClientData(std::shared_ptr<Connection> client) {
     }
     std::cout << std::endl;
 }
+
+} // namespace mqtt

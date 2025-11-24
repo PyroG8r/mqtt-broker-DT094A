@@ -4,6 +4,8 @@
 #include <iostream>
 #include <cstring>
 
+namespace mqtt {
+
 Connection::Connection(int socket) : socket_(socket), connected_(true) {}
 
 Connection::~Connection() {
@@ -45,3 +47,5 @@ void Connection::send(const std::vector<uint8_t>& data) {
         connected_ = false;
     }
 }
+
+} // namespace mqtt

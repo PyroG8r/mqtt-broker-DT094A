@@ -4,6 +4,8 @@
 #include <vector>
 #include <cstdint>
 
+namespace mqtt {
+
 class Connection {
 public:
     Connection(int socket);
@@ -20,5 +22,7 @@ private:
     int socket_;
     bool connected_;
 };
+
+} // namespace mqtt
 
 #endif // CONNECTION_H

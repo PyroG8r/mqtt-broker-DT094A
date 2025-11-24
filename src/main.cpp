@@ -2,7 +2,7 @@
 #include <csignal>
 #include "broker/MqttBroker.h"
 
-MqttBroker* brokerInstance = nullptr;
+mqtt::MqttBroker* brokerInstance = nullptr;
 
 void signalHandler(int signum) {
     std::cout << "\nInterrupt signal (" << signum << ") received." << std::endl;
@@ -13,7 +13,7 @@ void signalHandler(int signum) {
 }
 
 int main() {
-    MqttBroker broker;
+    mqtt::MqttBroker broker;
     brokerInstance = &broker;
     
     // Register signal handler for graceful shutdown

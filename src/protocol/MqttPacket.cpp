@@ -1,5 +1,7 @@
 #include "MqttPacket.h"
 
+namespace mqtt {
+
 MqttPacket::MqttPacket() {
     // Constructor implementation
 }
@@ -7,3 +9,5 @@ MqttPacket::MqttPacket() {
 MqttPacket::~MqttPacket() {
     // Destructor implementation
 }
+
+} // namespace mqtt

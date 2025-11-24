@@ -5,6 +5,8 @@
 #include <memory>
 #include "../connection/Connection.h"
 
+namespace mqtt {
+
 class MqttBroker {
 public:
     MqttBroker();
@@ -22,5 +24,7 @@ private:
     void acceptNewConnection();
     void handleClientData(std::shared_ptr<Connection> client);
 };
+
+} // namespace mqtt
 
 #endif // MQTT_BROKER_H
