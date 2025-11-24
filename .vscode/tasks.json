@@ -1,0 +1,52 @@
+{
+    "tasks": [
+        {
+            "label": "Configure CMake (Ninja)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["-S", ".", "-B", "build", "-G", "Ninja"],
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "detail": "Generates Ninja build files in ./build"
+        },
+        {
+            "label": "Build mqtt-broker",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build"],
+            "dependsOn": "Configure CMake (Ninja)",
+            "problemMatcher": ["$gcc"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Builds the mqtt-broker executable via CMake/Ninja"
+        },
+        {
+            "type": "cppbuild",
+            "label": "C/C++: g++ build active file",
+            "command": "/usr/bin/g++",
+            "args": [
+                "-fdiagnostics-color=always",
+                "-g",
+                "${file}",
+                "-o",
+                "${fileDirname}/${fileBasenameNoExtension}"
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "none"
+            },
+            "detail": "Original task retained for single-file builds"
+        }
+    ],
+    "version": "2.0.0"
+}
