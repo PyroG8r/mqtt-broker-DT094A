@@ -106,6 +106,24 @@ void MqttBroker::run() {
                 // Check if client disconnected
                 if (!client->isConnected()) {
                     std::cout << "Client disconnected" << std::endl;
+                    
+                    // Clean up subscriptions for this client
+                    for (auto& [topic, subscribers] : subscriptions) {
+                        subscribers.erase(
+                            std::remove(subscribers.begin(), subscribers.end(), client),
+                            subscribers.end()
+                        );
+                    }
+                    
+                    // Clean up empty subscription lists
+                    for (auto subIt = subscriptions.begin(); subIt != subscriptions.end();) {
+                        if (subIt->second.empty()) {
+                            subIt = subscriptions.erase(subIt);
+                        } else {
+                            ++subIt;
+                        }
+                    }
+                    
                     it = clients.erase(it);
                     continue;
                 }
@@ -137,20 +155,266 @@ void MqttBroker::handleClientData(std::shared_ptr<Connection> client) {
     std::vector<uint8_t> buffer = client->receive();
     
     if (buffer.empty()) {
-        // Client disconnected
+        // Client disconnected ungracefully
+        std::cout << "Client disconnected ungracefully" << std::endl;
         client->disconnect();
         return;
     }
     
-    // Log received data
-    std::cout << "Received " << buffer.size() << " bytes: ";
-    for (size_t i = 0; i < std::min(buffer.size(), size_t(16)); ++i) {
-        printf("%02X ", buffer[i]);
+    try {
+        // Parse MQTT packet
+        MqttPacket packet = MqttPacket::parse(buffer);
+        PacketType type = packet.get_packet_type();
+        
+        std::cout << "Received packet type: " << static_cast<int>(type) << std::endl;
+        
+        // Handle different packet types
+        switch (type) {
+            case PacketType::CONNECT:
+                handleConnect(client, packet);
+                break;
+                
+            case PacketType::PUBLISH:
+                handlePublish(client, packet);
+                break;
+                
+            case PacketType::SUBSCRIBE:
+                handleSubscribe(client, packet);
+                break;
+                
+            case PacketType::UNSUBSCRIBE:
+                handleUnsubscribe(client, packet);
+                break;
+                
+            case PacketType::PINGREQ:
+                handlePingreq(client);
+                break;
+                
+            case PacketType::DISCONNECT:
+                handleDisconnect(client);
+                break;
+                
+            default:
+                std::cout << "Unsupported packet type: " << static_cast<int>(type) << std::endl;
+                break;
+        }
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error parsing packet: " << e.what() << std::endl;
+        client->disconnect();
     }
-    if (buffer.size() > 16) {
-        std::cout << "...";
+}
+
+void MqttBroker::handleConnect(std::shared_ptr<Connection> client, const MqttPacket& packet) {
+    std::cout << "Handling CONNECT packet" << std::endl;
+    
+    try {
+        // Parse CONNECT packet
+        ConnectPacket connect = ConnectPacket::parse(packet);
+        
+        std::cout << "Client ID: " << connect.client_id << std::endl;
+        std::cout << "Protocol: " << connect.protocol_name << " v" 
+                  << static_cast<int>(connect.protocol_version) << std::endl;
+        std::cout << "Keep Alive: " << connect.keep_alive << " seconds" << std::endl;
+        
+        // TODO: Validate protocol version (should be 5 for MQTT 5.0)
+        // TODO: Check client_id, handle clean session, etc.
+        
+        // Send CONNACK - successful connection
+        MqttPacket connack = PacketFactory::create_connack(0, 0);  // session_present=0, reason_code=0 (success)
+        std::vector<uint8_t> response = connack.serialize();
+        client->send(response);
+        
+        std::cout << "Sent CONNACK (success)" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error handling CONNECT: " << e.what() << std::endl;
+        
+        // Send CONNACK with error
+        MqttPacket connack = PacketFactory::create_connack(0, 0x80);  // Unspecified error
+        std::vector<uint8_t> response = connack.serialize();
+        client->send(response);
+        client->disconnect();
     }
-    std::cout << std::endl;
+}
+
+void MqttBroker::handlePublish(std::shared_ptr<Connection> client, const MqttPacket& packet) {
+    std::cout << "Handling PUBLISH packet" << std::endl;
+    
+    try {
+        // Parse PUBLISH packet
+        PublishPacket publish = PublishPacket::parse(packet);
+        
+        std::cout << "Topic: " << publish.topic_name << std::endl;
+        std::cout << "Message: " << std::string(publish.message.begin(), publish.message.end()) << std::endl;
+        std::cout << "QoS: " << static_cast<int>(packet.get_qos()) << std::endl;
+        std::cout << "Retain: " << packet.get_retain_flag() << std::endl;
+        
+        // Handle retained messages
+        if (packet.get_retain_flag()) {
+            if (publish.message.empty()) {
+                // Empty retained message = delete retained message
+                retainedMessages.erase(publish.topic_name);
+                std::cout << "Deleted retained message for topic: " << publish.topic_name << std::endl;
+            } else {
+                retainedMessages[publish.topic_name] = {publish.message, static_cast<uint8_t>(packet.get_qos())};
+                std::cout << "Stored retained message for topic: " << publish.topic_name << std::endl;
+            }
+        }
+        
+        // Forward message to all subscribers
+        if (subscriptions.find(publish.topic_name) != subscriptions.end()) {
+            for (auto& subscriber : subscriptions[publish.topic_name]) {
+                if (subscriber != client && subscriber->isConnected()) {
+                    // Create PUBLISH packet for subscriber
+                    MqttPacket forward = PacketFactory::create_publish(
+                        publish.topic_name, 
+                        publish.message, 
+                        packet.get_qos(), 
+                        false,  // Don't forward retain flag
+                        0       // TODO: Handle packet IDs properly
+                    );
+                    std::vector<uint8_t> data = forward.serialize();
+                    subscriber->send(data);
+                    std::cout << "Forwarded message to subscriber" << std::endl;
+                }
+            }
+        }
+        
+        // Send PUBACK if QoS > 0
+        if (packet.get_qos() == QoSLevel::AT_LEAST_ONCE) {
+            MqttPacket puback = PacketFactory::create_puback(publish.packet_identifier, 0);
+            std::vector<uint8_t> response = puback.serialize();
+            client->send(response);
+            std::cout << "Sent PUBACK" << std::endl;
+        }
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error handling PUBLISH: " << e.what() << std::endl;
+    }
+}
+
+void MqttBroker::handleSubscribe(std::shared_ptr<Connection> client, const MqttPacket& packet) {
+    std::cout << "Handling SUBSCRIBE packet" << std::endl;
+    
+    try {
+        // Parse SUBSCRIBE packet
+        SubscribePacket subscribe = SubscribePacket::parse(packet);
+        
+        std::vector<uint8_t> reason_codes;
+        
+        for (const auto& [topic, qos] : subscribe.topic_filters) {
+            std::cout << "Subscribe to topic: " << topic << " (QoS " << static_cast<int>(qos) << ")" << std::endl;
+            
+            // Add client to subscription list
+            subscriptions[topic].push_back(client);
+            
+            // Send retained message if exists
+            if (retainedMessages.find(topic) != retainedMessages.end()) {
+                const auto& [message, retain_qos] = retainedMessages[topic];
+                MqttPacket retained = PacketFactory::create_publish(
+                    topic,
+                    message,
+                    static_cast<QoSLevel>(retain_qos),
+                    true,  // Retain flag
+                    0
+                );
+                std::vector<uint8_t> data = retained.serialize();
+                client->send(data);
+                std::cout << "Sent retained message for topic: " << topic << std::endl;
+            }
+            
+            // Success - granted QoS
+            reason_codes.push_back(qos);
+        }
+        
+        // Send SUBACK
+        MqttPacket suback = PacketFactory::create_suback(subscribe.packet_identifier, reason_codes);
+        std::vector<uint8_t> response = suback.serialize();
+        client->send(response);
+        
+        std::cout << "Sent SUBACK" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error handling SUBSCRIBE: " << e.what() << std::endl;
+    }
+}
+
+void MqttBroker::handleUnsubscribe(std::shared_ptr<Connection> client, const MqttPacket& packet) {
+    std::cout << "Handling UNSUBSCRIBE packet" << std::endl;
+    
+    try {
+        // Parse UNSUBSCRIBE packet
+        UnsubscribePacket unsubscribe = UnsubscribePacket::parse(packet);
+        
+        std::vector<uint8_t> reason_codes;
+        
+        for (const auto& topic : unsubscribe.topic_filters) {
+            std::cout << "Unsubscribe from topic: " << topic << std::endl;
+            
+            // Remove client from subscription list
+            if (subscriptions.find(topic) != subscriptions.end()) {
+                auto& subscribers = subscriptions[topic];
+                subscribers.erase(
+                    std::remove(subscribers.begin(), subscribers.end(), client),
+                    subscribers.end()
+                );
+                
+                // Clean up empty subscription lists
+                if (subscribers.empty()) {
+                    subscriptions.erase(topic);
+                }
+                
+                reason_codes.push_back(0);  // Success
+            } else {
+                reason_codes.push_back(0x11);  // No subscription existed
+            }
+        }
+        
+        // Send UNSUBACK
+        MqttPacket unsuback = PacketFactory::create_unsuback(unsubscribe.packet_identifier, reason_codes);
+        std::vector<uint8_t> response = unsuback.serialize();
+        client->send(response);
+        
+        std::cout << "Sent UNSUBACK" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error handling UNSUBSCRIBE: " << e.what() << std::endl;
+    }
+}
+
+void MqttBroker::handlePingreq(std::shared_ptr<Connection> client) {
+    std::cout << "Handling PINGREQ packet" << std::endl;
+    
+    // Send PINGRESP
+    MqttPacket pingresp = PacketFactory::create_pingresp();
+    std::vector<uint8_t> response = pingresp.serialize();
+    client->send(response);
+    
+    std::cout << "Sent PINGRESP" << std::endl;
+}
+
+void MqttBroker::handleDisconnect(std::shared_ptr<Connection> client) {
+    std::cout << "Handling DISCONNECT packet (graceful disconnect)" << std::endl;
+    
+    // Remove client from all subscriptions
+    for (auto& [topic, subscribers] : subscriptions) {
+        subscribers.erase(
+            std::remove(subscribers.begin(), subscribers.end(), client),
+            subscribers.end()
+        );
+    }
+    
+    // Clean up empty subscription lists
+    for (auto it = subscriptions.begin(); it != subscriptions.end();) {
+        if (it->second.empty()) {
+            it = subscriptions.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    
+    client->disconnect();
 }
 
 } // namespace mqtt

@@ -1,29 +1,29 @@
 {
     "tasks": [
         {
-            "label": "Configure CMake (Ninja)",
+            "label": "Configure CMake",
             "type": "shell",
             "command": "cmake",
-            "args": ["-S", ".", "-B", "build", "-G", "Ninja"],
+            "args": ["-S", ".", "-B", "build"],
             "problemMatcher": [],
             "group": {
                 "kind": "build",
                 "isDefault": false
             },
-            "detail": "Generates Ninja build files in ./build"
+            "detail": "Generates Unix Makefiles in ./build"
         },
         {
             "label": "Build mqtt-broker",
             "type": "shell",
             "command": "cmake",
             "args": ["--build", "build"],
-            "dependsOn": "Configure CMake (Ninja)",
+            "dependsOn": "Configure CMake",
             "problemMatcher": ["$gcc"],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
-            "detail": "Builds the mqtt-broker executable via CMake/Ninja"
+            "detail": "Builds the mqtt-broker executable via CMake"
         },
         {
             "type": "cppbuild",
