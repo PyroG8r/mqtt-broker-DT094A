@@ -36,9 +36,9 @@ enum class QoSLevel : uint8_t {
 
 struct Header {
     PacketType packet_type;
-    bool dupe;
-    QoSLevel qos;
-    bool retain;
+    bool dupe {false};
+    QoSLevel qos {QoSLevel::AT_MOST_ONCE};
+    bool retain {false};
 };
 
 

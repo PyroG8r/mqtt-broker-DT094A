@@ -34,6 +34,9 @@ private:
     void handlePingreq(std::shared_ptr<Connection> client);
     void handleDisconnect(std::shared_ptr<Connection> client);
     
+    // Helper methods
+    void cleanupClientSubscriptions(std::shared_ptr<Connection> client);
+    
     // Topic management
     std::map<std::string, std::vector<std::shared_ptr<Connection>>> subscriptions;  // topic -> clients
     std::map<std::string, std::pair<std::vector<uint8_t>, uint8_t>> retainedMessages;  // topic -> (message, qos)

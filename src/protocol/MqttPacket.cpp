@@ -280,7 +280,6 @@ PublishPacket PublishPacket::parse(const MqttPacket& packet) {
     const auto& payload = packet.get_payload();
     size_t index = 0;
     
-    // Topic name
     publish.topic_name = MqttPacket::read_utf8_string(payload, index);
     
     // Packet identifier (only if QoS > 0)
@@ -288,11 +287,9 @@ PublishPacket PublishPacket::parse(const MqttPacket& packet) {
         publish.packet_identifier = MqttPacket::read_uint16(payload, index);
     }
     
-    // Properties (MQTT 5.0) - MUST read property length
     uint32_t prop_length = MqttPacket::read_variable_byte_integer(payload, index);
     index += prop_length;  // Skip properties 
     
-    // Message (remaining bytes)
     publish.message.assign(payload.begin() + index, payload.end());
     
     return publish;
@@ -306,7 +303,6 @@ SubscribePacket SubscribePacket::parse(const MqttPacket& packet) {
     // Packet identifier
     subscribe.packet_identifier = MqttPacket::read_uint16(payload, index);
     
-    // Properties (MQTT 5.0) - MUST read property length
     uint32_t prop_length = MqttPacket::read_variable_byte_integer(payload, index);
     index += prop_length;  // Skip properties
     
@@ -325,10 +321,8 @@ UnsubscribePacket UnsubscribePacket::parse(const MqttPacket& packet) {
     const auto& payload = packet.get_payload();
     size_t index = 0;
     
-    // Packet identifier
     unsubscribe.packet_identifier = MqttPacket::read_uint16(payload, index);
     
-    // Properties (MQTT 5.0) - MUST read property length
     uint32_t prop_length = MqttPacket::read_variable_byte_integer(payload, index);
     index += prop_length;  // Skip properties
     
@@ -349,9 +343,6 @@ MqttPacket create_connack(uint8_t session_present, uint8_t reason_code) {
     
     Header header;
     header.packet_type = PacketType::CONNACK;
-    header.dupe = false;
-    header.qos = QoSLevel::AT_MOST_ONCE;
-    header.retain = false;
     
     std::vector<uint8_t> payload;
     payload.push_back(session_present & 0x01);  // Connect Acknowledge Flags
@@ -381,7 +372,7 @@ MqttPacket create_publish(const std::string& topic, const std::vector<uint8_t>& 
     
     payload.push_back(0);  // Property Length = 0
     
-    payload.insert(payload.end(), message.begin(), message.end());
+    payload.insert(payload.end(), message.begin(), message.end()); // 
     
     packet.set_header(header).set_payload(payload);
     return packet;
@@ -392,9 +383,6 @@ MqttPacket create_puback(uint16_t packet_identifier, uint8_t reason_code) {
     
     Header header;
     header.packet_type = PacketType::PUBACK;
-    header.dupe = false;
-    header.qos = QoSLevel::AT_MOST_ONCE;
-    header.retain = false;
     
     std::vector<uint8_t> payload;
     MqttPacket::write_uint16(payload, packet_identifier);
@@ -410,9 +398,6 @@ MqttPacket create_suback(uint16_t packet_identifier, const std::vector<uint8_t>&
     
     Header header;
     header.packet_type = PacketType::SUBACK;
-    header.dupe = false;
-    header.qos = QoSLevel::AT_MOST_ONCE;
-    header.retain = false;
     
     std::vector<uint8_t> payload;
     MqttPacket::write_uint16(payload, packet_identifier);
@@ -429,9 +414,6 @@ MqttPacket create_unsuback(uint16_t packet_identifier, const std::vector<uint8_t
     
     Header header;
     header.packet_type = PacketType::UNSUBACK;
-    header.dupe = false;
-    header.qos = QoSLevel::AT_MOST_ONCE;
-    header.retain = false;
     
     std::vector<uint8_t> payload;
     MqttPacket::write_uint16(payload, packet_identifier);
@@ -448,9 +430,6 @@ MqttPacket create_pingresp() {
     
     Header header;
     header.packet_type = PacketType::PINGRESP;
-    header.dupe = false;
-    header.qos = QoSLevel::AT_MOST_ONCE;
-    header.retain = false;
     
     packet.set_header(header).set_payload({});
     return packet;
@@ -461,9 +440,6 @@ MqttPacket create_disconnect(uint8_t reason_code) {
     
     Header header;
     header.packet_type = PacketType::DISCONNECT;
-    header.dupe = false;
-    header.qos = QoSLevel::AT_MOST_ONCE;
-    header.retain = false;
     
     std::vector<uint8_t> payload;
     payload.push_back(reason_code);

@@ -105,25 +105,8 @@ void MqttBroker::run() {
                 
                 // Check if client disconnected
                 if (!client->isConnected()) {
-                    std::cout << "Client disconnected" << std::endl;
-                    
-                    // Clean up subscriptions for this client
-                    for (auto& [topic, subscribers] : subscriptions) {
-                        subscribers.erase(
-                            std::remove(subscribers.begin(), subscribers.end(), client),
-                            subscribers.end()
-                        );
-                    }
-                    
-                    // Clean up empty subscription lists
-                    for (auto subIt = subscriptions.begin(); subIt != subscriptions.end();) {
-                        if (subIt->second.empty()) {
-                            subIt = subscriptions.erase(subIt);
-                        } else {
-                            ++subIt;
-                        }
-                    }
-                    
+                    std::cout << "Client disconnected, " << clientFd << ". Cleaning up subscriptions." << std::endl;
+                    cleanupClientSubscriptions(client);
                     it = clients.erase(it);
                     continue;
                 }
@@ -162,13 +145,9 @@ void MqttBroker::handleClientData(std::shared_ptr<Connection> client) {
     }
     
     try {
-        // Parse MQTT packet
         MqttPacket packet = MqttPacket::parse(buffer);
         PacketType type = packet.get_packet_type();
         
-        std::cout << "Received packet type: " << static_cast<int>(type) << std::endl;
-        
-        // Handle different packet types
         switch (type) {
             case PacketType::CONNECT:
                 handleConnect(client, packet);
@@ -215,7 +194,6 @@ void MqttBroker::handleConnect(std::shared_ptr<Connection> client, const MqttPac
         std::cout << "Client ID: " << connect.client_id << std::endl;
         std::cout << "Protocol: " << connect.protocol_name << " v" 
                   << static_cast<int>(connect.protocol_version) << std::endl;
-        std::cout << "Keep Alive: " << connect.keep_alive << " seconds" << std::endl;
         
         // TODO: Validate protocol version (should be 5 for MQTT 5.0)
         // TODO: Check client_id, handle clean session, etc.
@@ -252,31 +230,25 @@ void MqttBroker::handlePublish(std::shared_ptr<Connection> client, const MqttPac
         
         // Handle retained messages
         if (packet.get_retain_flag()) {
-            if (publish.message.empty()) {
-                // Empty retained message = delete retained message
-                retainedMessages.erase(publish.topic_name);
-                std::cout << "Deleted retained message for topic: " << publish.topic_name << std::endl;
-            } else {
-                retainedMessages[publish.topic_name] = {publish.message, static_cast<uint8_t>(packet.get_qos())};
-                std::cout << "Stored retained message for topic: " << publish.topic_name << std::endl;
-            }
+            retainedMessages[publish.topic_name] = {publish.message, static_cast<uint8_t>(packet.get_qos())}; // Store retained message, overwrite existing
+            std::cout << "Stored retained message for topic: " << publish.topic_name << std::endl;
         }
         
         // Forward message to all subscribers
-        if (subscriptions.find(publish.topic_name) != subscriptions.end()) {
+        if (subscriptions.find(publish.topic_name) != subscriptions.end()) { // has subscribers
             for (auto& subscriber : subscriptions[publish.topic_name]) {
-                if (subscriber != client && subscriber->isConnected()) {
-                    // Create PUBLISH packet for subscriber
+                if (subscriber->isConnected()) { // send to all connected subscribers
+
                     MqttPacket forward = PacketFactory::create_publish(
                         publish.topic_name, 
                         publish.message, 
                         packet.get_qos(), 
                         false,  // Don't forward retain flag
-                        0       // TODO: Handle packet IDs properly
+                        0
                     );
                     std::vector<uint8_t> data = forward.serialize();
                     subscriber->send(data);
-                    std::cout << "Forwarded message to subscriber" << std::endl;
+                    std::cout << "Forwarded message to subscribers" << std::endl;
                 }
             }
         }
@@ -298,7 +270,6 @@ void MqttBroker::handleSubscribe(std::shared_ptr<Connection> client, const MqttP
     std::cout << "Handling SUBSCRIBE packet" << std::endl;
     
     try {
-        // Parse SUBSCRIBE packet
         SubscribePacket subscribe = SubscribePacket::parse(packet);
         
         std::vector<uint8_t> reason_codes;
@@ -316,8 +287,8 @@ void MqttBroker::handleSubscribe(std::shared_ptr<Connection> client, const MqttP
                     topic,
                     message,
                     static_cast<QoSLevel>(retain_qos),
-                    true,  // Retain flag
-                    0
+                    true,                                   // Retain flag
+                    0                                       // Packet ID not needed for QoS 0
                 );
                 std::vector<uint8_t> data = retained.serialize();
                 client->send(data);
@@ -384,9 +355,7 @@ void MqttBroker::handleUnsubscribe(std::shared_ptr<Connection> client, const Mqt
 }
 
 void MqttBroker::handlePingreq(std::shared_ptr<Connection> client) {
-    std::cout << "Handling PINGREQ packet" << std::endl;
     
-    // Send PINGRESP
     MqttPacket pingresp = PacketFactory::create_pingresp();
     std::vector<uint8_t> response = pingresp.serialize();
     client->send(response);
@@ -396,9 +365,13 @@ void MqttBroker::handlePingreq(std::shared_ptr<Connection> client) {
 
 void MqttBroker::handleDisconnect(std::shared_ptr<Connection> client) {
     std::cout << "Handling DISCONNECT packet (graceful disconnect)" << std::endl;
-    
+    cleanupClientSubscriptions(client);
+    client->disconnect();
+}
+
+void MqttBroker::cleanupClientSubscriptions(std::shared_ptr<Connection> client) {
     // Remove client from all subscriptions
-    for (auto& [topic, subscribers] : subscriptions) {
+    for (auto& [topic, subscribers] : subscriptions) { 
         subscribers.erase(
             std::remove(subscribers.begin(), subscribers.end(), client),
             subscribers.end()
@@ -413,8 +386,6 @@ void MqttBroker::handleDisconnect(std::shared_ptr<Connection> client) {
             ++it;
         }
     }
-    
-    client->disconnect();
 }
 
 } // namespace mqtt
