@@ -1,0 +1,9 @@
+build/
+.cache/
+.vscode/
+.git/
+.gitignore
+*.md
+*.log
+*.o
+*.obj
