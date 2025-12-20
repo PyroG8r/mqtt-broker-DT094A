@@ -6,7 +6,7 @@
 
 namespace mqtt {
 
-Connection::Connection(int socket) : socket_(socket), connected_(true) {}
+Connection::Connection(int socket) : socket_(socket), connected_(true), has_received_data_(false) {}
 
 Connection::~Connection() {
     disconnect();
@@ -31,6 +31,7 @@ std::vector<uint8_t> Connection::receive() {
         return std::vector<uint8_t>();
     }
     
+    has_received_data_ = true;
     buffer.resize(bytesRead);
     return buffer;
 }

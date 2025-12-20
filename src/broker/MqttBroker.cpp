@@ -11,7 +11,7 @@
 
 namespace mqtt {
 
-MqttBroker::MqttBroker() : serverSocket(-1), running(false) {}
+MqttBroker::MqttBroker() : serverSocket(-1), running(false), metrics_(std::make_unique<BrokerMetrics>()) {}
 
 MqttBroker::~MqttBroker() {
     stop();
@@ -38,6 +38,10 @@ void MqttBroker::start() {
     listen(serverSocket, MAX_CONNECTIONS);
     
     running = true;
+    
+    // Start Prometheus metrics exporter
+    metrics_->startExporter("0.0.0.0:9090");
+    
     std::cout << "MQTT Broker started on port " << DEFAULT_PORT << std::endl;
 }
 
@@ -108,6 +112,10 @@ void MqttBroker::run() {
                     std::cout << "Client disconnected, " << clientFd << ". Cleaning up subscriptions." << std::endl;
                     cleanupClientSubscriptions(client);
                     it = clients.erase(it);
+                    
+                    // Update metrics
+                    metrics_->setActiveConnections(clients.size());
+                    metrics_->setActiveSubscriptions(getTotalSubscriptions());
                     continue;
                 }
             }
@@ -132,17 +140,29 @@ void MqttBroker::acceptNewConnection() {
     
     auto client = std::make_shared<Connection>(clientSocket);
     clients.push_back(client);
+    
+    // Update metrics
+    metrics_->incrementTotalConnections();
+    metrics_->setActiveConnections(clients.size());
 }
 
 void MqttBroker::handleClientData(std::shared_ptr<Connection> client) {
     std::vector<uint8_t> buffer = client->receive();
     
     if (buffer.empty()) {
-        // Client disconnected ungracefully
-        std::cout << "Client disconnected ungracefully" << std::endl;
+        // Client disconnected
+        if (!client->hasReceivedData()) {
+            // Port probe or connection without MQTT handshake - suppress noisy logging
+            // This is common in Docker environments
+        } else {
+            std::cout << "Client disconnected ungracefully" << std::endl;
+        }
         client->disconnect();
         return;
     }
+    
+    // Track bytes received
+    metrics_->incrementBytesReceived(buffer.size());
     
     try {
         MqttPacket packet = MqttPacket::parse(buffer);
@@ -180,6 +200,7 @@ void MqttBroker::handleClientData(std::shared_ptr<Connection> client) {
         
     } catch (const std::exception& e) {
         std::cerr << "Error parsing packet: " << e.what() << std::endl;
+        metrics_->incrementConnectionErrors();
         client->disconnect();
     }
 }
@@ -228,6 +249,10 @@ void MqttBroker::handlePublish(std::shared_ptr<Connection> client, const MqttPac
         std::cout << "QoS: " << static_cast<int>(packet.get_qos()) << std::endl;
         std::cout << "Retain: " << packet.get_retain_flag() << std::endl;
         
+        // Track metrics
+        metrics_->incrementMessagesReceived();
+        metrics_->observeMessageSize(publish.message.size());
+        
         // Handle retained messages
         if (packet.get_retain_flag()) {
             retainedMessages[publish.topic_name] = {publish.message, static_cast<uint8_t>(packet.get_qos())}; // Store retained message, overwrite existing
@@ -248,6 +273,11 @@ void MqttBroker::handlePublish(std::shared_ptr<Connection> client, const MqttPac
                     );
                     std::vector<uint8_t> data = forward.serialize();
                     subscriber->send(data);
+                    
+                    // Track bytes sent and messages published
+                    metrics_->incrementBytesSent(data.size());
+                    metrics_->incrementMessagesPublished();
+                    
                     std::cout << "Forwarded message to subscribers" << std::endl;
                 }
             }
@@ -304,6 +334,9 @@ void MqttBroker::handleSubscribe(std::shared_ptr<Connection> client, const MqttP
         std::vector<uint8_t> response = suback.serialize();
         client->send(response);
         
+        // Update subscription metrics
+        metrics_->setActiveSubscriptions(getTotalSubscriptions());
+        
         std::cout << "Sent SUBACK" << std::endl;
         
     } catch (const std::exception& e) {
@@ -347,6 +380,9 @@ void MqttBroker::handleUnsubscribe(std::shared_ptr<Connection> client, const Mqt
         std::vector<uint8_t> response = unsuback.serialize();
         client->send(response);
         
+        // Update subscription metrics
+        metrics_->setActiveSubscriptions(getTotalSubscriptions());
+        
         std::cout << "Sent UNSUBACK" << std::endl;
         
     } catch (const std::exception& e) {
@@ -386,6 +422,14 @@ void MqttBroker::cleanupClientSubscriptions(std::shared_ptr<Connection> client) 
             ++it;
         }
     }
+}
+
+size_t MqttBroker::getTotalSubscriptions() const {
+    size_t total = 0;
+    for (const auto& [topic, subscribers] : subscriptions) {
+        total += subscribers.size();
+    }
+    return total;
 }
 
 } // namespace mqtt

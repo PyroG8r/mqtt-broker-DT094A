@@ -19,6 +19,7 @@ add_executable(mqtt-broker
     src/broker/MqttBroker.cpp
     src/connection/Connection.cpp
     src/protocol/MqttPacket.cpp
+    src/metrics/BrokerMetrics.cpp
 )
 
 if(MQTT_ENABLE_WARNINGS)
@@ -26,5 +27,13 @@ if(MQTT_ENABLE_WARNINGS)
 endif()
 
 target_include_directories(mqtt-broker PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+# Add prometheus-cpp as a dependency
+find_package(prometheus-cpp CONFIG REQUIRED)
+
+target_link_libraries(mqtt-broker 
+    prometheus-cpp::pull  # For HTTP server with /metrics endpoint
+    prometheus-cpp::core
+)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

@@ -6,6 +6,7 @@
 #include <map>
 #include "../connection/Connection.h"
 #include "../protocol/MqttPacket.h"
+#include "../../include/metrics/BrokerMetrics.h"
 
 namespace mqtt {
 
@@ -22,8 +23,10 @@ private:
     int serverSocket;
     bool running;
     std::vector<std::shared_ptr<Connection>> clients;
+    std::unique_ptr<BrokerMetrics> metrics_;
     
     void acceptNewConnection();
+    size_t getTotalSubscriptions() const;
     void handleClientData(std::shared_ptr<Connection> client);
     
     // MQTT packet handlers

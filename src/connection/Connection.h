@@ -17,10 +17,12 @@ public:
     
     int getSocket() const { return socket_; }
     bool isConnected() const { return connected_; }
+    bool hasReceivedData() const { return has_received_data_; }
     
 private:
     int socket_;
     bool connected_;
+    bool has_received_data_;
 };
 
 } // namespace mqtt
