@@ -287,10 +287,28 @@ PublishPacket PublishPacket::parse(const MqttPacket& packet) {
         publish.packet_identifier = MqttPacket::read_uint16(payload, index);
     }
     
-    uint32_t prop_length = MqttPacket::read_variable_byte_integer(payload, index);
-    index += prop_length;  // Skip properties 
+    // MQTT 5.0 has properties, MQTT 3.1.1 does not
+    // For MQTT 3.1.1, skip reading properties
+    uint32_t prop_length = 0;
+    if (index < payload.size()) {
+        // Try to read property length (MQTT 5.0)
+        size_t prop_start = index;
+        prop_length = MqttPacket::read_variable_byte_integer(payload, index);
+        
+        // Validate property length
+        if (prop_length > payload.size() || index + prop_length > payload.size()) {
+            // Invalid property length or MQTT 3.1.1 packet - reset and treat as no properties
+            index = prop_start;
+            prop_length = 0;
+        } else {
+            index += prop_length;  // Skip properties for MQTT 5.0
+        }
+    }
     
-    publish.message.assign(payload.begin() + index, payload.end());
+    // Extract message payload
+    if (index <= payload.size()) {
+        publish.message.assign(payload.begin() + index, payload.end());
+    }
     
     return publish;
 }

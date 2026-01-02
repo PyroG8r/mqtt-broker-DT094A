@@ -212,7 +212,6 @@ void MqttBroker::handleConnect(std::shared_ptr<Connection> client, const MqttPac
         // Parse CONNECT packet
         ConnectPacket connect = ConnectPacket::parse(packet);
         
-        std::cout << "Client ID: " << connect.client_id << std::endl;
         std::cout << "Protocol: " << connect.protocol_name << " v" 
                   << static_cast<int>(connect.protocol_version) << std::endl;
         
@@ -223,8 +222,6 @@ void MqttBroker::handleConnect(std::shared_ptr<Connection> client, const MqttPac
         MqttPacket connack = PacketFactory::create_connack(0, 0);  // session_present=0, reason_code=0 (success)
         std::vector<uint8_t> response = connack.serialize();
         client->send(response);
-        
-        std::cout << "Sent CONNACK (success)" << std::endl;
         
     } catch (const std::exception& e) {
         std::cerr << "Error handling CONNECT: " << e.what() << std::endl;
@@ -246,8 +243,6 @@ void MqttBroker::handlePublish(std::shared_ptr<Connection> client, const MqttPac
         
         std::cout << "Topic: " << publish.topic_name << std::endl;
         std::cout << "Message: " << std::string(publish.message.begin(), publish.message.end()) << std::endl;
-        std::cout << "QoS: " << static_cast<int>(packet.get_qos()) << std::endl;
-        std::cout << "Retain: " << packet.get_retain_flag() << std::endl;
         
         // Track metrics
         metrics_->incrementMessagesReceived();
